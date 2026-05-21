@@ -321,52 +321,69 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script>
-        // 2. CONFIGURACIÓN DE SUPABASE (Reemplaza con tus datos reales)
-        const supabaseUrl = 'https://purmoskaaiujfxpjokkk.supabase.co/rest/v1/';
+        // CONFIGURACIÓN CORREGIDA DE SUPABASE
+        // =====================================================
+        const supabaseUrl = 'https://purmoskaaiujfxpjokkk.supabase.co';  // ← CORREGIDO: sin /rest/v1/
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1cm1vc2thYWl1amZ4cGpva2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzE0MzUsImV4cCI6MjA5NDYwNzQzNX0.V3hc0x8RCgp-CZ_h5YOJ3W8Af6lb55etcpjxjkLmzt0';
         const supabase = supabase.createClient(supabaseUrl, supabaseKey);
-
-        // Función auxiliar para alertas
-        function showAlert(elementId, message, type) {
-            const alertDiv = document.getElementById(elementId);
-            alertDiv.textContent = message;
-            alertDiv.className = `alert alert-${type}`;
-            alertDiv.style.display = 'block';
-            setTimeout(() => { alertDiv.style.display = 'none'; }, 4000);
+        
+        // =====================================================
+        // FUNCIÓN PARA OBTENER EMPLEADO ACTUAL (VERSIÓN SIMPLIFICADA)
+        // NOTA: Para producción, implementar autenticación real
+        // =====================================================
+        let currentEmpleadoId = null;
+        
+        async function getCurrentEmpleadoId() {
+            // Si ya tenemos un ID, lo devolvemos
+            if (currentEmpleadoId) return currentEmpleadoId;
+            
+            // Opción 1: Consultar primer empleado activo (solución temporal)
+            const { data, error } = await supabase
+                .from('empleado')
+                .select('id_empleado')
+                .eq('activo', true)
+                .limit(1);
+            
+            if (error || !data || data.length === 0) {
+                console.error('No hay empleados activos en la base de datos');
+                return null;
+            }
+            
+            currentEmpleadoId = data[0].id_empleado;
+            console.log(`Empleado actual: ${currentEmpleadoId}`);
+            return currentEmpleadoId;
         }
-
-        // ==========================================
-        // MÓDULO: PROVEEDORES
-        // ==========================================
+        
+        // =====================================================
+        // MÓDULO: PROVEEDORES (sin cambios, funciona)
+        // =====================================================
         document.getElementById('proveedorForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('btnProveedor');
             btn.disabled = true; btn.textContent = "Guardando...";
-
+        
             const nombre = document.getElementById('nombreProveedor').value;
             const telefono = document.getElementById('telefono').value;
             const resenas = document.getElementById('reseñas').value;
-
+        
             try {
-                // Paso 1: Insertar en tabla proveedor
                 const { data: provData, error: provErr } = await supabase
                     .from('proveedor')
                     .insert([{ nombre_proveedor: nombre, resenas: resenas }])
-                    .select(); // .select() devuelve el registro creado con su ID
+                    .select();
                 
                 if (provErr) throw provErr;
-
-                // Paso 2: Insertar en tabla telefono_proveedor usando el ID generado
+        
                 const idGenerado = provData[0].id_proveedor;
                 const { error: telErr } = await supabase
                     .from('telefono_proveedor')
                     .insert([{ id_proveedor: idGenerado, telefono: telefono }]);
-
+        
                 if (telErr) throw telErr;
-
-                showAlert('proveedorAlert', 'Proveedor guardado en la base de datos', 'success');
+        
+                showAlert('proveedorAlert', 'Proveedor guardado correctamente', 'success');
                 this.reset();
-                cargarProveedores(); // Actualiza la tabla visual
+                cargarProveedores();
             } catch (error) {
                 console.error("Error:", error);
                 showAlert('proveedorAlert', 'Error: ' + error.message, 'error');
@@ -374,7 +391,7 @@
                 btn.disabled = false; btn.textContent = "Registrar Proveedor";
             }
         });
-
+        
         async function cargarProveedores() {
             const { data, error } = await supabase.from('proveedor').select('*').order('id_proveedor', { ascending: false });
             const tbody = document.querySelector('#tablaProveedores tbody');
@@ -392,37 +409,41 @@
                 </tr>
             `).join('');
         }
-
-        // ==========================================
-        // MÓDULO: INSUMOS / INVENTARIO
-        // ==========================================
+        
+        // =====================================================
+        // MÓDULO: INSUMOS / INVENTARIO (CORREGIDO)
+        // =====================================================
         document.getElementById('inventarioForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('btnInsumo');
             btn.disabled = true; btn.textContent = "Guardando...";
-
+        
             const nombre = document.getElementById('nombreInsumo').value;
-            const stock = document.getElementById('cantidadStock').value;
-            const unidad = document.getElementById('unidad').value;
-            const minimo = document.getElementById('stockMinimo').value;
-            let fechaCaducidad = document.getElementById('fechaCaducidad').value;
+            const stock = parseFloat(document.getElementById('cantidadStock').value);
+            let unidad = document.getElementById('unidad').value;
+            const minimo = parseFloat(document.getElementById('stockMinimo').value);
+            let fechaCaducidad = document.getElementById('fechaCaducidad').value || null;
             
-            if(!fechaCaducidad) fechaCaducidad = null; // Para respetar restricciones SQL
-
+            // CORRECCIÓN: Mapear valores del HTML a los ENUM de la BD
+            const unidadMapping = {
+                'KG': 'kg',
+                'LITROS': 'L',
+                'PIEZAS': 'pieza'
+            };
+            const unidadCorrecta = unidadMapping[unidad] || unidad.toLowerCase();
+            
             try {
-                // Paso 1: Insertar en tabla insumo
                 const { data: insumoData, error: insumoErr } = await supabase
                     .from('insumo')
                     .insert([{ 
                         nombre_insumo: nombre, 
-                        unidad_medida: unidad, 
+                        unidad_medida: unidadCorrecta, 
                         fecha_vencimiento: fechaCaducidad 
                     }])
                     .select();
                 
                 if (insumoErr) throw insumoErr;
-
-                // Paso 2: Insertar en tabla inventario
+        
                 const idInsumo = insumoData[0].id_insumo;
                 const { error: invErr } = await supabase
                     .from('inventario')
@@ -431,10 +452,10 @@
                         stock_actual: stock, 
                         stock_minimo: minimo 
                     }]);
-
+        
                 if (invErr) throw invErr;
-
-                showAlert('inventarioAlert', 'Insumo y stock inicial guardados', 'success');
+        
+                showAlert('inventarioAlert', 'Insumo registrado correctamente', 'success');
                 this.reset();
                 cargarInsumos();
             } catch (error) {
@@ -444,7 +465,7 @@
                 btn.disabled = false; btn.textContent = "Registrar Insumo";
             }
         });
-
+        
         async function cargarInsumos() {
             const { data, error } = await supabase.from('insumo').select('*').order('id_insumo', { ascending: false });
             const tbody = document.querySelector('#tablaInventario tbody');
@@ -462,15 +483,23 @@
                 </tr>
             `).join('');
         }
-
-        // ==========================================
-        // MÓDULO: VENTAS
-        // ==========================================
+        
+        // =====================================================
+        // MÓDULO: VENTAS (CORREGIDO)
+        // =====================================================
         document.getElementById('ventaForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('btnVenta');
             btn.disabled = true; btn.textContent = "Guardando...";
-
+        
+            // Obtener empleado actual
+            const idEmpleado = await getCurrentEmpleadoId();
+            if (!idEmpleado) {
+                showAlert('ventaAlert', 'Error: No hay empleados registrados en el sistema', 'error');
+                btn.disabled = false; btn.textContent = "Registrar Venta";
+                return;
+            }
+        
             const selectProducto = document.getElementById('producto');
             const idProducto = selectProducto.value;
             const precioUnitario = parseFloat(selectProducto.options[selectProducto.selectedIndex].getAttribute('data-precio'));
@@ -479,16 +508,14 @@
             const descuento = parseFloat(document.getElementById('descuento').value);
             const metodoPago = document.getElementById('metodoPago').value;
             
-            // Cálculo básico del total
             let totalVenta = (precioUnitario * cantidad);
             if(descuento > 0) { totalVenta = totalVenta - (totalVenta * (descuento/100)); }
-
+        
             try {
-                // Paso 1: Registrar Venta (Requiere id_empleado según tu DDL, hardcodeamos 1)
                 const { data: ventaData, error: ventaErr } = await supabase
                     .from('venta')
                     .insert([{ 
-                        id_empleado: 1, // <--- ADVERTENCIA: Este ID debe existir en tu tabla empleado
+                        id_empleado: idEmpleado,
                         fecha_hora: new Date().toISOString(),
                         total_venta: totalVenta,
                         metodo_pago: metodoPago,
@@ -496,10 +523,9 @@
                         propina: 0
                     }])
                     .select();
-
+        
                 if (ventaErr) throw ventaErr;
-
-                // Paso 2: Registrar Detalle de Venta
+        
                 const idVentaGenerado = ventaData[0].id_venta;
                 const { error: detalleErr } = await supabase
                     .from('detalle_venta')
@@ -511,18 +537,18 @@
                     }]);
                 
                 if (detalleErr) throw detalleErr;
-
-                showAlert('ventaAlert', 'Venta y detalle registrados correctamente', 'success');
+        
+                showAlert('ventaAlert', 'Venta registrada correctamente', 'success');
                 this.reset();
                 cargarVentas();
             } catch (error) {
                 console.error("Error:", error);
-                showAlert('ventaAlert', 'Error: Verifica que exista un empleado con ID 1. ' + error.message, 'error');
+                showAlert('ventaAlert', 'Error: ' + error.message, 'error');
             } finally {
                 btn.disabled = false; btn.textContent = "Registrar Venta";
             }
         });
-
+        
         async function cargarVentas() {
             const { data, error } = await supabase.from('venta').select('*').order('fecha_hora', { ascending: false }).limit(10);
             const tbody = document.querySelector('#tablaVentas tbody');
@@ -541,8 +567,8 @@
                 </tr>
             `).join('');
         }
-
-        // Cargar tablas al iniciar la página
+        
+        // Cargar datos al iniciar
         window.addEventListener('DOMContentLoaded', () => {
             cargarProveedores();
             cargarInsumos();
